@@ -5,3 +5,5 @@
 ## Usage
 
 The provided script is not executable as it's just a starting point for you to write your own `getquote` script. And, of course, it's pretty well-documented.
+
+After customizing the script, if it finally can fetch the rates for you, great! For Ledger to use your `getquote`, please drop the script into somewhere in your PATH, e.g. `~/.local/bin`
