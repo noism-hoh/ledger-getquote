@@ -1,1 +1,191 @@
- 
+#!/usr/bin/python3
+
+'''
+MIT License
+
+Copyright (c) 2021 Noism
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
+import argparse
+import requests
+import sys
+import os
+import json
+import locale
+from bs4 import BeautifulSoup
+from datetime import datetime
+from dateutil.relativedelta import relativedelta, FR
+
+# Add as many as you need, as long as it's supported by the data source
+types = {
+	'stocks': ['VNM', 'VCB', 'BID', 'POW', 'E1VFVN30', 'FLC', 'VIC'],
+	'coins': ['ETH', 'BCH'],
+	'fiat': ['EUR', 'USD', 'CHF', 'KRW', 'GBP'],
+	'gold': 'cây vàng',
+	'silver': 'cây bạc',
+}
+
+parser = argparse.ArgumentParser()
+parser.add_argument('commodity')
+args, unknown = parser.parse_known_args()
+
+comm = args.commodity
+
+for arg in unknown:
+	comm += (' ' + arg)
+
+if comm in types['gold']:
+	src = 'SJC'
+
+	page_url = "https://sjc.com.vn/giavang/textContent.php"
+	requests.urllib3.disable_warnings()
+	page = requests.get(page_url, verify = False)
+	soup = BeautifulSoup(page.content, 'html.parser')
+
+	locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
+	raw_bid_price = locale.atoi(soup.table.find_all("tr", limit = 2)[1].find_all("td")[1].text)
+	raw_ask_price = locale.atoi(soup.table.find_all("tr", limit = 2)[1].find_all("td")[2].text)
+	price = round((raw_bid_price + raw_ask_price) / 2)
+
+	raw_date = soup.find_all(class_ = "w350 m5l float_left red_text bg_white")[0].text
+	date = datetime.strptime(raw_date, '%I:%M:%S %p %d/%m/%Y')
+
+elif comm in types['fiat']:
+	src = 'SBV'
+
+	if comm == 'USD':
+		# SBV has a specific page for central USD rate
+
+		page_url = "https://www.sbv.gov.vn/TyGia/faces/TyGiaTrungTam.jspx"
+		page = requests.get(page_url)
+		soup = BeautifulSoup(page.content, 'html.parser')
+
+		raw_date = soup.find('table').find_all('table')[2].tbody.tr.find_all('td')[1].table.tbody.find_all('tr')[2].find_all('td')[1].find_all('span')[1].text
+		date = datetime.strptime(raw_date, '%d/%m/%Y')
+
+		locale.setlocale(locale.LC_NUMERIC, 'vi_VN.UTF-8')
+		price = soup.find('table').find_all('table')[2].tbody.tr.find_all('td')[1].table.tbody.find_all('tr')[5].find_all('td')[2].span.text
+		price = locale.atoi(price.split()[0])
+
+	else:
+		page_url = 'https://www.sbv.gov.vn/TyGia/faces/TyGiaCheo.jspx'
+		page = requests.get(page_url)
+		soup = BeautifulSoup(page.content, 'html.parser')
+
+		raw_date = soup.find('table').find_all('table')[2].tbody.tr.find_all('td')[1].table.tbody.find_all('tr')[1].find_all('span')[1].text
+		date = datetime.strptime(raw_date, '%d/%m/%Y')
+
+		def match_currency(e):
+			try:
+				return e.find_all('td')[2].span.text == comm
+			except (AttributeError, IndexError):
+				return False
+
+		locale.setlocale(locale.LC_NUMERIC, 'vi_VN.UTF-8')
+		price = round(locale.atof(soup.find('table').find_all('table')[2].tbody.tr.find_all('td')[1].table.tbody.find(match_currency).find_all('td')[4].span.text))
+
+elif comm in types['coins']:
+	src = 'CoinGecko'
+
+	# Check out CoinGecko API's docs to obtain coin IDs
+	if comm == 'ETH':
+		c_id = 'ethereum'
+	elif comm == 'BCH':
+		c_id = 'bitcoin-cash'
+
+	query_url = 'https://api.coingecko.com/api/v3/simple/price?ids=' + c_id + '&vs_currencies=vnd&include_last_updated_at=true'
+	resp = requests.get(query_url)
+	json = json.loads(resp.content)
+
+	price = json[c_id]['vnd']
+	date = datetime.fromtimestamp(json[c_id]['last_updated_at'])
+
+elif comm in types['silver']:
+	src = 'Silver Moon Company'
+
+	page_url = "http://www.bacmattrang.com"
+	page = requests.get(page_url)
+	soup = BeautifulSoup(page.content, 'html.parser')
+
+	locale.setlocale(locale.LC_NUMERIC, 'vi_VN.UTF-8')
+	raw_bid = soup.find_all(class_ = 'row lastest-price')[0].find_all('div', recursive=False)[0].div.find_all('div')[1].span.text
+	raw_ask = soup.find_all(class_ = 'row lastest-price')[0].find_all('div', recursive=False)[1].div.find_all('div')[1].span.text
+	price = round((locale.atoi(raw_bid) + locale.atoi(raw_ask)) / 2)
+
+	date = datetime.now()
+
+elif comm in types['stocks']:
+	src = 'BSC'
+
+	page_url = "https://www.bsc.com.vn/Companies/Overview/" + comm
+	page = requests.get(page_url)
+	soup = BeautifulSoup(page.content, 'html.parser')
+
+	locale.setlocale(locale.LC_NUMERIC, 'vi_VN.UTF-8')
+
+	if soup.find_all(class_ = 'text-right')[2].font is not None:
+		price = round(locale.atof(soup.find_all(class_ = 'text-right')[2].font.text.split(' ')[0]) * 1000)
+	else:
+		price = round(locale.atof(soup.find_all(class_ = 'text-right')[2].div.text.split(' ')[0]) * 1000)
+
+	if datetime.today().weekday() in [5, 6]:
+		# Get the nearest weekday if today is weekend
+		date = datetime.now() + relativedelta(days = -1, weekday = FR(-1))
+	else:
+		date = datetime.now()
+
+else:
+	sys.exit()
+
+local_currency = 'VND'	# Change this!
+locale.setlocale(locale.LC_NUMERIC, 'vi_VN.UTF-8')	# You may change this so you will get dot or comma
+price = locale.format_string('%d', price, True) + ' ' + local_currency
+
+if len(comm.split()) > 1:
+	comm = '"' + comm + '"'
+
+date_str = date.strftime('%d/%m/%Y')
+print('%s %s %s' % (date_str, comm, price))
+
+# CHANGE THIS!
+f_path = ''
+
+with open(f_path, 'rb') as f:
+	f.seek(-2, os.SEEK_END)
+	while f.read(1) != b'\n':
+		f.seek(-2, os.SEEK_CUR)
+	last = f.readline().decode()
+
+	if datetime.strptime(last.split('\t')[1], '%d/%m/%Y').date() != date.date():
+		add_nl = True
+	else:
+		add_nl = False
+
+with open(f_path, 'a') as f:
+	# I use tabs, feel free to replace "\t" with a whitespace.
+	new_line = 'P\t%s\t%s\t%s\t; %s' % (date_str, comm, price)
+	if src != '':
+		new_line += '; %s' % (src)
+	if add_nl:
+		new_line = '\n' + new_line
+
+	f.write(new_line + '\n')
+	f.close()

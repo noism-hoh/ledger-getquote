@@ -1,1 +1,143 @@
- 
+#!/usr/bin/python3
+
+'''
+MIT License
+
+Copyright (c) 2021 Noism
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
+import argparse
+import requests
+import sys
+import os
+import json
+import locale
+from bs4 import BeautifulSoup
+from datetime import datetime
+from dateutil.relativedelta import relativedelta, FR
+
+# Specify list of commodities, separated into types, to work with.
+#
+# A single source usually accepts many commodities of a certain type. For
+# example, you can fetch exchange rate of more than 1000 cryptocurrencies from
+# CoinGecko.
+#
+# For each type, you will need to write your own code to fetch the rate.
+# Typically you can make API calls, however if API is not available then web
+# scraping is a good alternative.
+
+types = {
+	'stocks': ['VNM', 'VIC'],
+	'coins': ['BCH', 'ETH', 'XMR'],
+	'fiat': ['EUR', 'USD'],
+}
+
+# As Ledger doesn't call this script properly (it doesn't put commodity name
+# containing special characters into quotes), we need to do some processing
+# here.
+
+parser = argparse.ArgumentParser()
+parser.add_argument('commodity')
+args, unknown = parser.parse_known_args()
+
+comm = args.commodity
+
+for arg in unknown:
+	comm += (' ' + arg)
+
+# Now let's do the fetching work. You are supposed to modify this section.
+# Do not change name of provided variables, as they will be used later.
+
+if comm in types['stocks']:
+	# FX rate source to be written into price database file. Leave it blank
+	# if you don't need to record the source.
+	src = 'A random website'
+
+	# Write your processing logic here…
+
+	# The fetched rate. It must be an integer.
+	price = 10000
+
+	# Updated time of the rate. It must be a datetime object.
+	#
+	# You can either use datetime.now() if the fetched rate doesn't have
+	# last updated time included or you just don't mind it, or
+	# datetime.strptime() if it's available.
+	date = datetime.now()
+
+elif comm in types['fiat']:
+	# write something…
+
+# elif comm in types['…'] — repeat the same for every type.
+
+else:
+	sys.exit()
+
+# Print the newly fetched rate so Ledger can use it
+# Depending on whether you use dot or comma, you should specify the
+# corresponding locale.
+
+local_currency = ''	# Change this!
+locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
+price = locale.format_string('%d', price, True) + ' ' + local_currency
+
+# If commodity name contains spaces, it need to be put into double quotes.
+# I guess Ledger devs won't bother to make this easier to understand any time
+# soon :)
+if len(comm.split()) > 1:
+	comm = '"' + comm + '"'
+
+date_str = date.strftime('%d/%m/%Y')
+print('%s %s %s' % (date_str, comm, price))
+
+# Path of price database file. Change this too!
+f_path = ''
+
+# If the last line in the price file doesn't contain the same date as the one
+# we are going to write, an additional line will be added. This is just for
+# aesthetic purposes, you can disable this behavior by setting add_nl to False.
+
+with open(f_path, 'rb') as f:
+	f.seek(-2, os.SEEK_END)
+	while f.read(1) != b'\n':
+		f.seek(-2, os.SEEK_CUR)
+	last = f.readline().decode()
+
+	# I use tabs, feel free to replace "\t" with a whitespace.
+	if datetime.strptime(last.split('\t')[1], '%d/%m/%Y').date() != date.date():
+		add_nl = True
+	else:
+		add_nl = False
+# add_nl = False
+
+# Write the fetched rate into the price file
+with open(f_path, 'a') as f:
+	# I use tabs, feel free to replace "\t" with a whitespace.
+	new_line = 'P\t%s\t%s\t%s\t' % (date_str, comm, price)
+
+	if src != '':
+		new_line += '; %s' % (src)
+
+	if add_nl:
+		new_line = '\n' + new_line
+
+	f.write(new_line + '\n')
+	f.close()
