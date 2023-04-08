@@ -1,6 +1,10 @@
+# Example scripts
+
+## getquote-vnd
+
 This script fetches exchange rate of some commodities to Vietnamese Dong from a range of different websites.
 
-## Supported Commodity Types
+Supported commodity types:
 
 | Type           | Source                                                                                   | Fetch method | Multiple commodities available |
 |----------------|------------------------------------------------------------------------------------------|--------------|:------------------------------:|
